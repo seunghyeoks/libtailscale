@@ -232,6 +232,38 @@ public actor TailscaleNode {
         }
     }
 
+    public struct ProxyConfig: Sendable, Equatable {
+        public let host: String
+        public let port: Int
+        public let credential: String
+    }
+
+    /// Starts a SOCKS5 proxy onto the tailnet and returns its address and
+    /// credential (username "tsnet"). `reopen` replaces its listener after the
+    /// OS reclaimed it from a suspended process.
+    ///
+    /// @See tailscale_proxy in Tailscale.h
+    public func proxy(reopen: Bool = false) throws -> ProxyConfig {
+        guard let tailscale else {
+            throw TailscaleError.badInterfaceHandle
+        }
+        let addrBuf = UnsafeMutablePointer<Int8>.allocate(capacity: 64)
+        let credBuf = UnsafeMutablePointer<Int8>.allocate(capacity: 33)
+        defer {
+            addrBuf.deallocate()
+            credBuf.deallocate()
+        }
+        let res = tailscale_proxy(tailscale, reopen ? 1 : 0, addrBuf, 64, credBuf)
+        guard res == 0 else {
+            throw TailscaleError.fromPosixErrCode(res, tailscale.getErrorMessage())
+        }
+        let address = String(cString: addrBuf)
+        guard let colon = address.lastIndex(of: ":"), let port = Int(address[address.index(after: colon)...]) else {
+            throw TailscaleError.fromPosixErrCode(-1, "proxy address \(address) has no port")
+        }
+        return ProxyConfig(host: String(address[..<colon]), port: port, credential: String(cString: credBuf))
+    }
+
     private var loopbackConfig: LoopbackConfig?
 
     /// Starts and returns the address and credentials of a SOCKS5 proxy which can also

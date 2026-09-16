@@ -9,6 +9,8 @@ import "C"
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -25,6 +27,7 @@ import (
 	"golang.org/x/sys/unix"
 	"tailscale.com/hostinfo"
 	"tailscale.com/ipn"
+	"tailscale.com/net/socks5"
 	"tailscale.com/tsnet"
 	"tailscale.com/types/logger"
 )
@@ -42,6 +45,10 @@ type server struct {
 	s       *tsnet.Server
 	lastErr string
 	started bool
+
+	proxyMu    sync.Mutex
+	proxyLn    net.Listener // nil until tailscale_proxy first runs
+	proxyCred  string
 }
 
 func getServer(sd C.int) *server {
@@ -142,6 +149,13 @@ func TsnetClose(sd C.int) C.int {
 	if s == nil {
 		return C.EBADF
 	}
+
+	s.proxyMu.Lock()
+	if s.proxyLn != nil {
+		s.proxyLn.Close()
+		s.proxyLn = nil
+	}
+	s.proxyMu.Unlock()
 
 	// TODO: cancel Up
 	// TODO: close related listeners / conns.
@@ -580,6 +594,74 @@ func TsnetLoopback(sd C.int, addrOut *C.char, addrLen C.size_t, proxyOut *C.char
 	copy(out, localAPICred)
 	out[32] = '\x00'
 
+	return 0
+}
+
+//export TsnetProxy
+func TsnetProxy(sd C.int, reopen C.int, addrOut *C.char, addrLen C.size_t, credOut *C.char) C.int {
+	if addrOut == nil || addrLen == 0 || credOut == nil {
+		panic("proxy passed nil or empty out buffers")
+	}
+	*addrOut = '\x00'
+	*credOut = '\x00'
+
+	s := getServer(sd)
+	if s == nil {
+		return C.EBADF
+	}
+	if err := s.s.Start(); err != nil {
+		return s.recErr(err)
+	}
+
+	s.proxyMu.Lock()
+	defer s.proxyMu.Unlock()
+	if s.proxyLn == nil || reopen != 0 {
+		// Reopening keeps the address when it can, so connections already
+		// pointed at it only need to redial.
+		addr := "127.0.0.1:0"
+		if s.proxyLn != nil {
+			addr = s.proxyLn.Addr().String()
+			s.proxyLn.Close()
+			s.proxyLn = nil
+		}
+		if s.proxyCred == "" {
+			var b [16]byte
+			if _, err := rand.Read(b[:]); err != nil {
+				return s.recErr(err)
+			}
+			s.proxyCred = hex.EncodeToString(b[:])
+		}
+		ln, err := net.Listen("tcp", addr)
+		if err != nil && addr != "127.0.0.1:0" {
+			ln, err = net.Listen("tcp", "127.0.0.1:0")
+		}
+		if err != nil {
+			return s.recErr(err)
+		}
+		logf := s.s.Logf
+		if logf == nil {
+			logf = logger.Discard
+		}
+		srv := &socks5.Server{
+			Logf:     logger.WithPrefix(logf, "proxy: "),
+			Dialer:   s.s.Dial,
+			Username: "tsnet",
+			Password: s.proxyCred,
+		}
+		go srv.Serve(ln)
+		s.proxyLn = ln
+	}
+
+	out := unsafe.Slice((*byte)(unsafe.Pointer(addrOut)), addrLen)
+	n := copy(out, s.proxyLn.Addr().String())
+	if n >= len(out) {
+		out[len(out)-1] = '\x00'
+		return C.ERANGE
+	}
+	out[n] = '\x00'
+	out = unsafe.Slice((*byte)(unsafe.Pointer(credOut)), 33)
+	copy(out, s.proxyCred)
+	out[32] = '\x00'
 	return 0
 }
 

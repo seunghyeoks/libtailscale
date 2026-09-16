@@ -175,6 +175,20 @@ extern int tailscale_accept(tailscale_listener listener, tailscale_conn* conn_ou
 // Returns zero on success or -1 on error, call tailscale_errmsg for details.
 extern int tailscale_loopback(tailscale sd, char* addr_out, size_t addrlen, char* proxy_cred_out, char* local_api_cred_out);
 
+// tailscale_proxy starts a SOCKS5 proxy onto the tailnet on a loopback
+// address, separate from tailscale_loopback's. Authentication is required
+// with the username "tsnet" and the value of proxy_cred as the password.
+//
+// The OS can reclaim a listening socket from a suspended process (observed on
+// iOS), after which tailscale_loopback's address is permanently dead. Pass a
+// non-zero reopen to replace this proxy's listener; it keeps the address and
+// credential when it can. With reopen zero, the running proxy is returned.
+//
+// proxy_cred_out must point to an array that can hold 33 bytes.
+//
+// Returns zero on success or -1 on error, call tailscale_errmsg for details.
+extern int tailscale_proxy(tailscale sd, int reopen, char* addr_out, size_t addrlen, char* proxy_cred_out);
+
 // tailscale_status_json writes the backend status (the JSON encoding of
 // ipnstate.Status, the same struct LocalAPI's /localapi/v0/status returns)
 // to *json_out as a NUL-terminated, malloc'd string. The caller owns the
