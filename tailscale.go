@@ -676,6 +676,26 @@ func TsnetProxy(sd C.int, reopen C.int, addrOut *C.char, addrLen C.size_t, credO
 	return 0
 }
 
+//export TsnetRebind
+func TsnetRebind(sd C.int) C.int {
+	s := getServer(sd)
+	if s == nil {
+		return C.EBADF
+	}
+	lc, err := s.s.LocalClient()
+	if err != nil {
+		return s.recErr(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	for _, action := range []string{"rebind", "restun"} {
+		if err := lc.DebugAction(ctx, action); err != nil {
+			return s.recErr(err)
+		}
+	}
+	return s.recErr(nil)
+}
+
 //export TsnetStatusJSON
 func TsnetStatusJSON(sd C.int, jsonOut **C.char) C.int {
 	if jsonOut == nil {

@@ -264,6 +264,20 @@ public actor TailscaleNode {
         return ProxyConfig(host: String(address[..<colon]), port: port, credential: String(cString: credBuf))
     }
 
+    /// Rebinds the node's sockets and re-runs STUN, as after a network
+    /// change. Call it when returning from a suspension.
+    ///
+    /// @See tailscale_rebind in Tailscale.h
+    public func rebind() throws {
+        guard let tailscale else {
+            throw TailscaleError.badInterfaceHandle
+        }
+        let res = tailscale_rebind(tailscale)
+        guard res == 0 else {
+            throw TailscaleError.fromPosixErrCode(res, tailscale.getErrorMessage())
+        }
+    }
+
     private var loopbackConfig: LoopbackConfig?
 
     /// Starts and returns the address and credentials of a SOCKS5 proxy which can also

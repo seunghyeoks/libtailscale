@@ -196,6 +196,15 @@ extern int tailscale_loopback(tailscale sd, char* addr_out, size_t addrlen, char
 // Returns zero on success or -1 on error, call tailscale_errmsg for details.
 extern int tailscale_proxy(tailscale sd, int reopen, char* addr_out, size_t addrlen, char* proxy_cred_out);
 
+// tailscale_rebind rebinds the node's UDP sockets, drops DERP connections
+// whose local address went away, and re-runs STUN — what a network change
+// does. The OS can close a suspended process's sockets (observed on iOS), and
+// until the first send fails and triggers a rebind, a dial waits out a
+// WireGuard handshake retry.
+//
+// Returns zero on success or -1 on error, call tailscale_errmsg for details.
+extern int tailscale_rebind(tailscale sd);
+
 // tailscale_status_json writes the backend status (the JSON encoding of
 // ipnstate.Status, the same struct LocalAPI's /localapi/v0/status returns)
 // to *json_out as a NUL-terminated, malloc'd string. The caller owns the
