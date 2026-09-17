@@ -686,6 +686,14 @@ func TsnetRebind(sd C.int) C.int {
 	if err != nil {
 		return s.recErr(err)
 	}
+	// Rebind only drops a DERP connection after a failed 3s ping (or never,
+	// without a network monitor), and until then packets vanish into the
+	// dead one — the WireGuard handshake is lost and retried 5s later.
+	// Taking the network down and up reconnects DERP now.
+	if mc, ok := s.s.Sys().MagicSock.GetOK(); ok {
+		mc.SetNetworkUp(false)
+		mc.SetNetworkUp(true)
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	for _, action := range []string{"rebind", "restun"} {

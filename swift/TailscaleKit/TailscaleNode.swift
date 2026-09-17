@@ -264,8 +264,8 @@ public actor TailscaleNode {
         return ProxyConfig(host: String(address[..<colon]), port: port, credential: String(cString: credBuf))
     }
 
-    /// Rebinds the node's sockets and re-runs STUN, as after a network
-    /// change. Call it when returning from a suspension.
+    /// Reconnects DERP, rebinds the node's sockets and re-runs STUN, as
+    /// after a network change. Call it when returning from a suspension.
     ///
     /// @See tailscale_rebind in Tailscale.h
     public func rebind() throws {
