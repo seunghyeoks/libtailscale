@@ -46,9 +46,9 @@ type server struct {
 	lastErr string
 	started bool
 
-	proxyMu    sync.Mutex
-	proxyLn    net.Listener // nil until tailscale_proxy first runs
-	proxyCred  string
+	proxyMu   sync.Mutex
+	proxyLn   net.Listener // nil until tailscale_proxy first runs
+	proxyCred string
 }
 
 func getServer(sd C.int) *server {
@@ -642,9 +642,20 @@ func TsnetProxy(sd C.int, reopen C.int, addrOut *C.char, addrLen C.size_t, credO
 		if logf == nil {
 			logf = logger.Discard
 		}
+		plogf := logger.WithPrefix(logf, "proxy: ")
 		srv := &socks5.Server{
-			Logf:     logger.WithPrefix(logf, "proxy: "),
-			Dialer:   s.s.Dial,
+			Logf: plogf,
+			// socks5 logs a failed dial but not what a successful one reached,
+			// nor a refused login, so every dial says how it went.
+			Dialer: func(ctx context.Context, network, addr string) (net.Conn, error) {
+				c, err := s.s.Dial(ctx, network, addr)
+				if err != nil {
+					plogf("dial %s: %v", addr, err)
+				} else {
+					plogf("dial %s: connected %s -> %s", addr, c.LocalAddr(), c.RemoteAddr())
+				}
+				return c, err
+			},
 			Username: "tsnet",
 			Password: s.proxyCred,
 		}
